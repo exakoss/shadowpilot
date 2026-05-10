@@ -1,0 +1,20 @@
+{
+  "name": "shadowpilot",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @shadowpilot/web dev",
+    "build": "pnpm --filter @shadowpilot/web build",
+    "lint": "pnpm --filter @shadowpilot/web lint",
+    "typecheck": "pnpm --filter @shadowpilot/web typecheck",
+    "devnet:bootstrap": "node scripts/devnet/bootstrap.mjs",
+    "devnet:seed": "node scripts/devnet/bootstrap.mjs --seed"
+  },
+  "devDependencies": {
+    "@solana/web3.js": "^1.98.4"
+  }
+}

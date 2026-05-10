@@ -1,0 +1,17 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ShadowPilot logo</title>
+  <desc id="desc">ShadowPilot wordmark with a simple white robotic arm mark on black.</desc>
+  <rect width="1200" height="320" fill="#000000"/>
+  <rect x="24" y="24" width="272" height="272" rx="58" fill="#000000"/>
+  <path d="M82 235C82 221 94 209 108 209H180C186 209 192 215 192 221V245H82V235Z" fill="#FFFFFF"/>
+  <path d="M102 202V153H136V202C130 207 125 209 119 209C113 209 107 207 102 202Z" fill="#FFFFFF"/>
+  <circle cx="119" cy="148" r="35" fill="#FFFFFF"/>
+  <circle cx="119" cy="148" r="22" fill="#000000"/>
+  <circle cx="119" cy="148" r="11" fill="#FFFFFF"/>
+  <path d="M141 122L189 83C195 78 203 80 208 86L222 104L160 153L147 136C144 132 142 127 141 122Z" fill="#FFFFFF"/>
+  <path d="M216 94H258V132" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M258 132L237 148L243 179" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M258 132L279 148L268 179" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="352" y="185" fill="#FFFFFF" font-family="Inter, Arial, Helvetica, sans-serif" font-size="92" font-weight="760" letter-spacing="0">ShadowPilot</text>
+  <text x="358" y="235" fill="#FFFFFF" font-family="IBM Plex Mono, SFMono-Regular, Menlo, monospace" font-size="27" font-weight="500" letter-spacing="3.6">PRIVATE ROBOTICS OPS</text>
+</svg>

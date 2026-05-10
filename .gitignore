@@ -1,0 +1,47 @@
+# OS / editor
+.DS_Store
+.vscode/
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.local.example
+!apps/web/.env.local
+
+# Dependencies
+node_modules/
+
+# Build output and caches
+.next/
+dist/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Solana / Anchor local artifacts
+target/
+.anchor/
+test-ledger/
+.surfpool/
+*.log
+
+# ShadowPilot local demo state
+# Includes wallet-local profiles, demo reset markers, Arcium review vaults,
+# cNFT receipt cache, and teleoperation submission videos.
+.shadowpilot/
+apps/web/.shadowpilot/
+
+# Local recordings and capture exports
+recordings/
+captures/
+tmp-recordings/
+*.webm
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.wav
+*.mp3
+*.m4a
+*.aac

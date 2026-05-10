@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f3f4f6;
+  --background-elevated: rgba(255, 255, 255, 0.94);
+  --background-muted: #f8fafc;
+  --line: rgba(15, 23, 42, 0.08);
+  --line-strong: rgba(15, 23, 42, 0.14);
+  --text: #111827;
+  --text-muted: #6b7280;
+  --accent: #111827;
+  --accent-soft: #374151;
+  --brand-blue: #2563eb;
+  --brand-blue-strong: #1d4ed8;
+  --brand-blue-soft: #dbeafe;
+  --world-ink: #2d2c2c;
+  --world-blue: #2d2c2c;
+  --world-soft: #f9f9f8;
+  --arcium: #6d45ff;
+  --arcium-strong: #5b35ea;
+  --arcium-soft: #f1ecff;
+  --success: #0f766e;
+  --warning: #9a6700;
+  --critical: #b42318;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: linear-gradient(180deg, #f7f8fa 0%, #eef1f4 100%);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.88), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.6), transparent 24%);
+  font-family: var(--font-inter), sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  color: #091015;
+  background: var(--accent);
+}
+
+.panel {
+  border: 1px solid var(--line);
+  background: var(--background-elevated);
+  box-shadow:
+    0 10px 30px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+}
+
+.panel-muted {
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: var(--background-muted);
+}
+
+.eyebrow {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.page-shell {
+  margin: 0 auto;
+  max-width: 110rem;
+  padding: 1rem;
+}
+
+@media (min-width: 640px) {
+  .page-shell {
+    padding: 1.5rem;
+  }
+}

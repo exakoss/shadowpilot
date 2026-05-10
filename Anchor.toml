@@ -1,0 +1,16 @@
+[workspace]
+members = ["programs/shadowpilot"]
+
+[programs.localnet]
+shadowpilot = "4pPWvEnHLd2MRCW67nS7uZViBiyxo3M51S65NoFc7fiB"
+
+[programs.devnet]
+shadowpilot = "4pPWvEnHLd2MRCW67nS7uZViBiyxo3M51S65NoFc7fiB"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+build = "NO_DNA=1 anchor build"
+test = "NO_DNA=1 anchor test"
