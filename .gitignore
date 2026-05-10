@@ -31,6 +31,7 @@ test-ledger/
 # cNFT receipt cache, and teleoperation submission videos.
 .shadowpilot/
 apps/web/.shadowpilot/
+docs/internal-hackathon-notes.md
 
 # Local recordings and capture exports
 recordings/
