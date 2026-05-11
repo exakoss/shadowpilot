@@ -52,10 +52,12 @@ const EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE =
 const BLOCKED_CAMERA_LABEL_PATTERN =
   /(facetime|face time|built[\s-]?in|macbook|mac camera|continuity|iphone|ipad|obs virtual|virtual camera|snap camera|screen capture)/iu;
 const EXTERNAL_USB_CAMERA_LABEL_PATTERN =
-  /(usb[\s-]?c|usbc|usb|uvc|web\s?cam|logitech|brio|c9\d{2}|elgato|cam link|obsbot|anker|nexigo|depstech|j5create|avermedia|capture card)/iu;
+  /(usb[\s-]?c|usbc|usb|uvc|web\s?cam|logitech|brio|c9\d{2}|razer|kiyo|elgato|cam link|obsbot|anker|nexigo|depstech|j5create|avermedia|capture card)/iu;
 
 type CameraRefreshResult = {
   externalDevices: MediaDeviceInfo[];
+  labelsHidden: boolean;
+  videoDevices: MediaDeviceInfo[];
   warning: string | null;
 };
 
@@ -74,6 +76,12 @@ function isExternalUsbCameraLabel(label: string) {
 
 function isExternalUsbCamera(device: MediaDeviceInfo) {
   return isExternalUsbCameraLabel(device.label);
+}
+
+function stopMediaStream(stream: MediaStream) {
+  for (const track of stream.getTracks()) {
+    track.stop();
+  }
 }
 
 function formatCameraLabels(devices: MediaDeviceInfo[]) {
@@ -169,7 +177,6 @@ export function PilotTeleopWorkspace({
       !isPreparingCamera &&
       !isPreflightActive &&
       !isRecordingLive &&
-      hasExternalCamera &&
       !capturedClip,
   );
   const elapsedMillis =
@@ -279,9 +286,7 @@ export function PilotTeleopWorkspace({
       }
 
       if (streamRef.current) {
-        for (const track of streamRef.current.getTracks()) {
-          track.stop();
-        }
+        stopMediaStream(streamRef.current);
       }
 
       clearRecordingLimitTimer();
@@ -293,12 +298,20 @@ export function PilotTeleopWorkspace({
       setCameraDevices([]);
       setSelectedCameraDeviceId("");
       setCameraWarning("Chrome cannot list cameras in this browser session.");
-      return { externalDevices: [], warning: EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE };
+      return {
+        externalDevices: [],
+        labelsHidden: false,
+        videoDevices: [],
+        warning: EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE,
+      };
     }
 
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter((device) => device.kind === "videoinput");
+      const labelsHidden =
+        videoDevices.length > 0 &&
+        videoDevices.every((device) => normalizeCameraLabel(device.label).length === 0);
       const externalDevices = videoDevices.filter(isExternalUsbCamera);
       const warning = externalDevices.length > 0 ? null : buildCameraWarning(videoDevices);
 
@@ -312,7 +325,7 @@ export function PilotTeleopWorkspace({
         return externalDevices[0]?.deviceId ?? "";
       });
 
-      return { externalDevices, warning };
+      return { externalDevices, labelsHidden, videoDevices, warning };
     } catch (error) {
       const warning = `Chrome could not list cameras: ${
         error instanceof Error ? error.message : String(error)
@@ -320,7 +333,7 @@ export function PilotTeleopWorkspace({
       setCameraDevices([]);
       setSelectedCameraDeviceId("");
       setCameraWarning(warning);
-      return { externalDevices: [], warning };
+      return { externalDevices: [], labelsHidden: false, videoDevices: [], warning };
     }
   }, []);
 
@@ -387,9 +400,7 @@ export function PilotTeleopWorkspace({
       return;
     }
 
-    for (const track of streamRef.current.getTracks()) {
-      track.stop();
-    }
+    stopMediaStream(streamRef.current);
     streamRef.current = null;
 
     if (livePreviewRef.current) {
@@ -403,12 +414,31 @@ export function PilotTeleopWorkspace({
       throw new Error("Chrome cannot access a camera stream in this browser session.");
     }
 
-    const { externalDevices, warning } = await refreshCameraDevices();
+    const { externalDevices, labelsHidden, warning } = await refreshCameraDevices();
     const selectedDevice =
       externalDevices.find((device) => device.deviceId === selectedCameraDeviceId) ??
       externalDevices[0];
 
     if (!selectedDevice) {
+      if (labelsHidden) {
+        const permissionStream = ensureVideoOnlyStream(
+          await navigator.mediaDevices.getUserMedia({ audio: false, video: true }),
+        );
+        const [permissionTrack] = permissionStream.getVideoTracks();
+        const permissionTrackLabel = permissionTrack?.label ?? "";
+
+        if (!isExternalUsbCameraLabel(permissionTrackLabel)) {
+          stopMediaStream(permissionStream);
+          void refreshCameraDevices();
+          throw new Error(
+            "ShadowPilot blocked this camera because it is not recognized as an external USB-C device. If Chrome shows a camera picker, choose the Razer Kiyo Pro or another external USB-C camera before allowing access.",
+          );
+        }
+
+        void refreshCameraDevices();
+        return permissionStream;
+      }
+
       throw new Error(warning ?? EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE);
     }
 
@@ -427,9 +457,7 @@ export function PilotTeleopWorkspace({
       (trackDeviceId && selectedDevice.deviceId && trackDeviceId !== selectedDevice.deviceId) ||
       !isExternalUsbCameraLabel(trackLabel)
     ) {
-      for (const streamTrack of stream.getTracks()) {
-        streamTrack.stop();
-      }
+      stopMediaStream(stream);
       throw new Error(
         "ShadowPilot blocked this camera because it is not recognized as an external USB-C device. Select a USB camera and refresh before recording.",
       );
@@ -860,7 +888,7 @@ export function PilotTeleopWorkspace({
                     ? "Preparing camera"
                     : hasExternalCamera
                       ? "I am ready, start countdown"
-                      : "Connect external USB camera"}
+                      : "Check external USB camera"}
                 </button>
               </div>
             </article>
