@@ -44,8 +44,56 @@ function computeRemoteOpEfficiency(durationMillis: number, incidentCount: number
 }
 
 const RECORDING_COUNTDOWN_SECONDS = 5;
-const TARGET_RUN_SECONDS = 60;
+const TELEOP_RECORDING_LIMIT_SECONDS = 40;
+const TELEOP_RECORDING_LIMIT_MILLIS = TELEOP_RECORDING_LIMIT_SECONDS * 1000;
 const PAYOUT_TARGET = "Payout: one devnet settlement after buyer approval";
+const EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE =
+  "No external USB-C camera was found. Connect an external USB-C camera, allow camera access for localhost in Chrome, then refresh cameras. The built-in Mac camera is blocked for this demo.";
+const BLOCKED_CAMERA_LABEL_PATTERN =
+  /(facetime|face time|built[\s-]?in|macbook|mac camera|continuity|iphone|ipad|obs virtual|virtual camera|snap camera|screen capture)/iu;
+const EXTERNAL_USB_CAMERA_LABEL_PATTERN =
+  /(usb[\s-]?c|usbc|usb|uvc|web\s?cam|logitech|brio|c9\d{2}|elgato|cam link|obsbot|anker|nexigo|depstech|j5create|avermedia|capture card)/iu;
+
+type CameraRefreshResult = {
+  externalDevices: MediaDeviceInfo[];
+  warning: string | null;
+};
+
+function normalizeCameraLabel(label: string) {
+  return label.trim();
+}
+
+function isExternalUsbCameraLabel(label: string) {
+  const normalizedLabel = normalizeCameraLabel(label);
+  return (
+    normalizedLabel.length > 0 &&
+    EXTERNAL_USB_CAMERA_LABEL_PATTERN.test(normalizedLabel) &&
+    !BLOCKED_CAMERA_LABEL_PATTERN.test(normalizedLabel)
+  );
+}
+
+function isExternalUsbCamera(device: MediaDeviceInfo) {
+  return isExternalUsbCameraLabel(device.label);
+}
+
+function formatCameraLabels(devices: MediaDeviceInfo[]) {
+  const labels = devices.map((device) => normalizeCameraLabel(device.label)).filter(Boolean);
+  return labels.length > 0 ? labels.join(", ") : "unnamed camera devices";
+}
+
+function buildCameraWarning(videoDevices: MediaDeviceInfo[]) {
+  if (videoDevices.length === 0) {
+    return EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE;
+  }
+
+  if (videoDevices.every((device) => normalizeCameraLabel(device.label).length === 0)) {
+    return "Chrome has not exposed camera names yet, so ShadowPilot cannot verify an external USB-C camera. Allow camera access for localhost in Chrome, connect the USB camera, then refresh cameras.";
+  }
+
+  return `Only built-in, virtual, or non-USB cameras were detected (${formatCameraLabels(
+    videoDevices,
+  )}). Connect an external USB-C camera and refresh before recording.`;
+}
 
 type RunStepState = "active" | "done" | "locked";
 
@@ -77,6 +125,7 @@ export function PilotTeleopWorkspace({
 }) {
   const livePreviewRef = useRef<HTMLVideoElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingLimitTimeoutRef = useRef<number | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const stopResolveRef = useRef<((clip: MissionSubmissionClip | null) => void) | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -95,6 +144,7 @@ export function PilotTeleopWorkspace({
   const [isPreflightActive, setIsPreflightActive] = useState(false);
   const [liveNow, setLiveNow] = useState(0);
   const [selectedCameraDeviceId, setSelectedCameraDeviceId] = useState("");
+  const [cameraWarning, setCameraWarning] = useState<string | null>(null);
   const [sessionNotes, setSessionNotes] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
 
@@ -111,6 +161,7 @@ export function PilotTeleopWorkspace({
     ? compactAddress(mission.receipt.receiptMint)
     : "Receipt anchored";
   const claimBlockedByWorldId = Boolean(mission?.accessPolicy?.worldIdRequired && !worldIdLinked);
+  const hasExternalCamera = cameraDevices.length > 0;
   const canStartRun = Boolean(
     claimOwnedByConnectedWallet &&
       claimStatus === "claimed" &&
@@ -118,9 +169,13 @@ export function PilotTeleopWorkspace({
       !isPreparingCamera &&
       !isPreflightActive &&
       !isRecordingLive &&
+      hasExternalCamera &&
       !capturedClip,
   );
-  const elapsedMillis = startedAt && liveNow > 0 ? BigInt(liveNow - startedAt) : 0n;
+  const elapsedMillis =
+    startedAt && liveNow > 0
+      ? BigInt(Math.min(Math.max(0, liveNow - startedAt), TELEOP_RECORDING_LIMIT_MILLIS))
+      : 0n;
   const onchainSummary = mission?.claim
     ? {
         collisionCount: mission.claim.collisionCount,
@@ -154,7 +209,7 @@ export function PilotTeleopWorkspace({
       state: mission ? "done" : "locked",
     },
     {
-      detail: `${TARGET_RUN_SECONDS}s target run with a ${RECORDING_COUNTDOWN_SECONDS}s camera countdown.`,
+      detail: `${TELEOP_RECORDING_LIMIT_SECONDS}s max run with a ${RECORDING_COUNTDOWN_SECONDS}s camera countdown.`,
       label: "2. Start window",
       state:
         isPreflightActive || isPreparingCamera || canStartRun
@@ -194,6 +249,15 @@ export function PilotTeleopWorkspace({
     }
   }, []);
 
+  const clearRecordingLimitTimer = useCallback(() => {
+    if (recordingLimitTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(recordingLimitTimeoutRef.current);
+    recordingLimitTimeoutRef.current = null;
+  }, []);
+
   useEffect(() => {
     if (!isRecordingLive) {
       return;
@@ -219,24 +283,45 @@ export function PilotTeleopWorkspace({
           track.stop();
         }
       }
-    };
-  }, [clipPreviewUrl]);
 
-  const refreshCameraDevices = useCallback(async () => {
+      clearRecordingLimitTimer();
+    };
+  }, [clipPreviewUrl, clearRecordingLimitTimer]);
+
+  const refreshCameraDevices = useCallback(async (): Promise<CameraRefreshResult> => {
     if (!navigator.mediaDevices?.enumerateDevices) {
-      return;
+      setCameraDevices([]);
+      setSelectedCameraDeviceId("");
+      setCameraWarning("Chrome cannot list cameras in this browser session.");
+      return { externalDevices: [], warning: EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE };
     }
 
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter((device) => device.kind === "videoinput");
-    setCameraDevices(videoDevices);
-    setSelectedCameraDeviceId((current) => {
-      if (current && videoDevices.some((device) => device.deviceId === current)) {
-        return current;
-      }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((device) => device.kind === "videoinput");
+      const externalDevices = videoDevices.filter(isExternalUsbCamera);
+      const warning = externalDevices.length > 0 ? null : buildCameraWarning(videoDevices);
 
-      return videoDevices[0]?.deviceId ?? "";
-    });
+      setCameraDevices(externalDevices);
+      setCameraWarning(warning);
+      setSelectedCameraDeviceId((current) => {
+        if (current && externalDevices.some((device) => device.deviceId === current)) {
+          return current;
+        }
+
+        return externalDevices[0]?.deviceId ?? "";
+      });
+
+      return { externalDevices, warning };
+    } catch (error) {
+      const warning = `Chrome could not list cameras: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      setCameraDevices([]);
+      setSelectedCameraDeviceId("");
+      setCameraWarning(warning);
+      return { externalDevices: [], warning };
+    }
   }, []);
 
   useEffect(() => {
@@ -318,13 +403,38 @@ export function PilotTeleopWorkspace({
       throw new Error("Chrome cannot access a camera stream in this browser session.");
     }
 
-    const video =
-      selectedCameraDeviceId.length > 0
-        ? { deviceId: { exact: selectedCameraDeviceId } }
-        : true;
+    const { externalDevices, warning } = await refreshCameraDevices();
+    const selectedDevice =
+      externalDevices.find((device) => device.deviceId === selectedCameraDeviceId) ??
+      externalDevices[0];
+
+    if (!selectedDevice) {
+      throw new Error(warning ?? EXTERNAL_USB_CAMERA_REQUIRED_MESSAGE);
+    }
+
+    setSelectedCameraDeviceId(selectedDevice.deviceId);
     const stream = ensureVideoOnlyStream(
-      await navigator.mediaDevices.getUserMedia({ audio: false, video }),
+      await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { deviceId: { exact: selectedDevice.deviceId } },
+      }),
     );
+    const [track] = stream.getVideoTracks();
+    const trackDeviceId = track?.getSettings().deviceId;
+    const trackLabel = track?.label || selectedDevice.label;
+
+    if (
+      (trackDeviceId && selectedDevice.deviceId && trackDeviceId !== selectedDevice.deviceId) ||
+      !isExternalUsbCameraLabel(trackLabel)
+    ) {
+      for (const streamTrack of stream.getTracks()) {
+        streamTrack.stop();
+      }
+      throw new Error(
+        "ShadowPilot blocked this camera because it is not recognized as an external USB-C device. Select a USB camera and refresh before recording.",
+      );
+    }
+
     void refreshCameraDevices();
     return stream;
   }
@@ -349,7 +459,10 @@ export function PilotTeleopWorkspace({
 
     const recordingStartedAt = startedAtRef.current ?? startedAt;
     const durationMillis = recordingStartedAt
-      ? Math.max(1000, Date.now() - recordingStartedAt)
+      ? Math.min(
+          Math.max(1000, Date.now() - recordingStartedAt),
+          TELEOP_RECORDING_LIMIT_MILLIS,
+        )
       : undefined;
     const clip: MissionSubmissionClip = {
       blob,
@@ -366,6 +479,7 @@ export function PilotTeleopWorkspace({
 
   async function beginRecordingPreflight() {
     setActionError(null);
+    setCameraWarning(null);
     setCountdownEndsAt(null);
     setCountdownRemaining(RECORDING_COUNTDOWN_SECONDS);
     setIsCameraPreviewReady(false);
@@ -421,6 +535,7 @@ export function PilotTeleopWorkspace({
 
       await attachStreamToLivePreview(stream);
       chunksRef.current = [];
+      clearRecordingLimitTimer();
 
       const recorder = createVideoOnlyMediaRecorder(stream);
       recorderRef.current = recorder;
@@ -430,6 +545,10 @@ export function PilotTeleopWorkspace({
         }
       };
       recorder.onstop = () => {
+        clearRecordingLimitTimer();
+        if (recorderRef.current === recorder) {
+          recorderRef.current = null;
+        }
         const mimeType = recorder.mimeType || "video/webm";
         const blob = new Blob(chunksRef.current, { type: mimeType });
         persistRecordedClip(blob, mimeType);
@@ -441,6 +560,11 @@ export function PilotTeleopWorkspace({
       recorder.start(1000);
       const now = Date.now();
       startedAtRef.current = now;
+      recordingLimitTimeoutRef.current = window.setTimeout(() => {
+        if (recorderRef.current?.state === "recording") {
+          recorderRef.current.stop();
+        }
+      }, TELEOP_RECORDING_LIMIT_MILLIS);
       setCountdownRemaining(0);
       setIsCameraPreviewReady(false);
       setIsPreflightActive(false);
@@ -448,6 +572,7 @@ export function PilotTeleopWorkspace({
       setStartedAt(now);
       setLiveNow(now);
     } catch (error) {
+      clearRecordingLimitTimer();
       setActionError(error instanceof Error ? error.message : String(error));
       setCountdownRemaining(RECORDING_COUNTDOWN_SECONDS);
       setIsPreflightActive(false);
@@ -466,9 +591,17 @@ export function PilotTeleopWorkspace({
     }
 
     return new Promise<MissionSubmissionClip | null>((resolve) => {
+      const recorder = recorderRef.current;
       stopResolveRef.current = resolve;
-      recorderRef.current?.stop();
-      recorderRef.current = null;
+      clearRecordingLimitTimer();
+
+      if (!recorder || recorder.state === "inactive") {
+        stopResolveRef.current = null;
+        resolve(capturedClip ?? null);
+        return;
+      }
+
+      recorder.stop();
     });
   }
 
@@ -666,8 +799,9 @@ export function PilotTeleopWorkspace({
                     Confirm the run window
                   </h3>
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">
-                    Target run time is {TARGET_RUN_SECONDS}s. Recording does not start until you
-                    explicitly confirm that the robot, whiteboard, and camera are ready.
+                    Recording is capped at {TELEOP_RECORDING_LIMIT_SECONDS}s. It does not start
+                    until you explicitly confirm that the robot, whiteboard, and external USB-C
+                    camera are ready.
                   </p>
                 </div>
                 <StatusPill label={`${RECORDING_COUNTDOWN_SECONDS}s countdown`} tone="neutral" />
@@ -677,7 +811,7 @@ export function PilotTeleopWorkspace({
 
               <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
                 <label className="block">
-                  <p className="eyebrow">Camera source</p>
+                  <p className="eyebrow">External USB-C camera</p>
                   <select
                     value={selectedCameraDeviceId}
                     onChange={(event) => setSelectedCameraDeviceId(event.target.value)}
@@ -691,7 +825,7 @@ export function PilotTeleopWorkspace({
                         </option>
                       ))
                     ) : (
-                      <option value="">Default camera</option>
+                      <option value="">No external USB camera detected</option>
                     )}
                   </select>
                 </label>
@@ -707,6 +841,12 @@ export function PilotTeleopWorkspace({
                 </button>
               </div>
 
+              {cameraWarning ? (
+                <div className="mt-4 rounded-[18px] border border-[rgba(217,119,6,0.28)] bg-[rgba(252,211,77,0.13)] p-4 text-sm leading-6 text-[var(--text)]">
+                  {cameraWarning}
+                </div>
+              ) : null}
+
               <div className="mt-5 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -716,7 +856,11 @@ export function PilotTeleopWorkspace({
                   disabled={!canStartRun}
                   className="rounded-full border border-[var(--brand-blue-strong)] bg-[var(--brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.22)] transition hover:bg-[var(--brand-blue-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isPreparingCamera ? "Preparing camera" : "I am ready, start countdown"}
+                  {isPreparingCamera
+                    ? "Preparing camera"
+                    : hasExternalCamera
+                      ? "I am ready, start countdown"
+                      : "Connect external USB camera"}
                 </button>
               </div>
             </article>
@@ -731,8 +875,9 @@ export function PilotTeleopWorkspace({
                     Record the whiteboard line draw
                   </h3>
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">
-                    The browser is saving video only. Finish the run after the robotic arm draws the
-                    line and the camera has captured the outcome clearly.
+                    The browser is saving video only and will stop at{" "}
+                    {TELEOP_RECORDING_LIMIT_SECONDS}s. Finish the run after the robotic arm draws
+                    the line and the camera has captured the outcome clearly.
                   </p>
                 </div>
                 <StatusPill
